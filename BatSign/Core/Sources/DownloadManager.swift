@@ -11,6 +11,21 @@
 import Foundation
 import SwiftUI
 
+/// Nonisolated whole-percent progress throttle shared by delegate callbacks.
+private final class FractionThrottle {
+    private let lock = NSLock()
+    private var storage: [Int: Double] = [:]
+
+    func shouldPublish(id: Int, fraction: Double) -> Bool {
+        lock.lock()
+        defer { lock.unlock() }
+        let previous = storage[id] ?? -1
+        guard fraction - previous >= 0.01 || fraction >= 1.0 else { return false }
+        storage[id] = fraction
+        return true
+    }
+}
+
 enum StoreDownloadState: Equatable {
     case downloading(Double)          // 0...1
     case preparing                    // moving + parsing the package
@@ -40,8 +55,7 @@ final class DownloadManager: NSObject, ObservableObject {
     // Task identity: `taskDescription` carries the bundle identifier. It is
     // set once before resume and read from any thread — no mutable map, so
     // delegate-queue callbacks cannot race the main actor.
-    private let fractionLock = NSLock()
-    private var fractionStorage: [Int: Double] = [:]
+    private let throttle = FractionThrottle()
 
     override private init() {
         super.init()
@@ -143,15 +157,7 @@ extension DownloadManager: URLSessionDownloadDelegate {
             ? min(1.0, Double(totalBytesWritten) / Double(totalBytesExpectedToWrite))
             : 0
         // Throttle: publish at most every whole percent of progress.
-        var shouldPublish = false
-        fractionLock.lock()
-        let previous = fractionStorage[downloadTask.taskIdentifier] ?? -1
-        if fraction - previous >= 0.01 || fraction >= 1.0 {
-            fractionStorage[downloadTask.taskIdentifier] = fraction
-            shouldPublish = true
-        }
-        fractionLock.unlock()
-        guard shouldPublish else { return }
+        guard throttle.shouldPublish(id: downloadTask.taskIdentifier, fraction: fraction) else { return }
         Task { @MainActor [weak self] in
             self?.downloads[bundleID] = .downloading(fraction)
         }
