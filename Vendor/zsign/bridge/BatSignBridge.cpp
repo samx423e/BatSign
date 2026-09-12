@@ -30,9 +30,13 @@ using namespace std;
 static batsign_log_cb g_log_cb = NULL;
 static void* g_log_ctx = NULL;
 
-extern "C" batsign_log_cb batsign_get_log_hook(void)
+// Single dispatch point: called by the patched src/common/log.cpp.
+// The host's callback always receives (line, context) correctly typed.
+extern "C" void batsign_dispatch_log(const char* szLog)
 {
-	return g_log_cb;
+	if (NULL != g_log_cb && NULL != szLog) {
+		g_log_cb(szLog, g_log_ctx);
+	}
 }
 
 extern "C" void batsign_set_log_callback(batsign_log_cb cb, void* context)

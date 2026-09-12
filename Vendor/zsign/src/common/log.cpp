@@ -1,9 +1,11 @@
 #include "log.h"
 
 // BatSign hook: forwards every formatted log line to the host app when installed.
-// See bridge/BatSignBridge.cpp for the setter.
-typedef void (*batsign_log_fn)(const char* szLog);
-extern "C" batsign_log_fn batsign_get_log_hook(void);
+// The host owns the user-context pointer; the dispatcher lives in
+// bridge/BatSignBridge.cpp so the callback always receives BOTH arguments
+// with the correct types. (A 1-param function pointer here silently passed
+// register garbage as the context and crashed the host on arm64.)
+extern "C" void batsign_dispatch_log(const char* szLog);
 
 int ZLog::g_nLogLevel = ZLog::E_INFO;
 
@@ -13,11 +15,8 @@ void ZLog::_Print(const char* szLog, int nColor)
 		return;
 	}
 
-	{
-		batsign_log_fn hook = batsign_get_log_hook();
-		if (hook != NULL && szLog != NULL) {
-			hook(szLog);
-		}
+	if (szLog != NULL) {
+		batsign_dispatch_log(szLog);
 	}
 
 #ifdef _WIN32
