@@ -10,6 +10,9 @@ xcuserdata/
 # Generated OpenSSL build (fetched+compiled by CI)
 Vendor/openssl/
 
+# Generated zstd build (fetched+compiled by CI)
+Vendor/zstd/
+
 # Generated icon (CI regenerates)
 BatSign/Assets.xcassets/AppIcon.appiconset/icon_1024.png
 

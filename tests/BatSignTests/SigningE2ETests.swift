@@ -14,13 +14,6 @@ import XCTest
 final class SigningE2ETests: XCTestCase {
     private let p12Password = "batsign123"
 
-    private func writeFixture(_ base64: String, name: String) throws -> URL {
-        let data = try XCTUnwrap(Data(base64Encoded: base64), name)
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent(name)
-        try data.write(to: url, options: [.atomic])
-        return url
-    }
-
     private func makeFixtureIPA() throws -> (input: URL, output: URL) {
         let infoPlist = """
         <?xml version="1.0" encoding="UTF-8"?>
@@ -73,17 +66,21 @@ final class SigningE2ETests: XCTestCase {
             try? FileManager.default.removeItem(at: paths.input)
             try? FileManager.default.removeItem(at: paths.output)
         }
-        let p12URL = try writeFixture(Self.P12_BASE64, name: "fixture.p12")
-        let profileURL = try writeFixture(Self.PROV_BASE64, name: "fixture.mobileprovision")
-        defer {
-            try? FileManager.default.removeItem(at: p12URL)
-            try? FileManager.default.removeItem(at: profileURL)
-        }
+
+        // The certificate record resolves p12/profile paths from its own ID
+        // (Documents/Certificates/<id>/...), so the fixtures must live there —
+        // exactly where the real CertificateManager stores them.
+        let cert = makeCert()
+        let certDir = Paths.certs.appendingPathComponent(cert.id.uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: certDir, withIntermediateDirectories: true)
+        try Data(base64Encoded: Self.P12_BASE64)!.write(to: cert.p12URL, options: [.atomic])
+        try Data(base64Encoded: Self.PROV_BASE64)!.write(to: cert.profileURL, options: [.atomic])
+        defer { try? FileManager.default.removeItem(at: certDir) }
 
         let request = SignRequest(
             inputIPA: paths.input,
             outputIPA: paths.output,
-            certificate: makeCert(),
+            certificate: cert,
             password: p12Password,
             adhoc: false,
             bundleID: "com.bat.e2e",

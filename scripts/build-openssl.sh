@@ -43,8 +43,16 @@ build_one() {
   fi
 
   # `-xcrun` targets locate the compiler themselves; no CROSS_TOP needed.
+  #
+  # no-module is required, not cosmetic: Apple Keychain exports .p12 files with
+  # pbeWithSHA1And40BitRC2-CBC, whose RC2 implementation lives in OpenSSL's
+  # legacy provider. By default that provider is built as a *loadable module*,
+  # which cannot exist in a static no-shared iOS link — zsign's
+  # OSSL_PROVIDER_load(NULL, "legacy") therefore fails and every real user
+  # certificate dies with "Can't load p12 or private key file". no-module
+  # compiles the legacy provider into libcrypto as a builtin (STATIC_LEGACY).
   ./Configure "$target" $noasm_flag \
-    no-shared no-tests no-docs no-ui-console no-external-tests
+    no-shared no-module no-tests no-docs no-ui-console no-external-tests
 
   make -j "$(sysctl -n hw.ncpu)" build_libs
 
