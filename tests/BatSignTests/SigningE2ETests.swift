@@ -90,7 +90,7 @@ final class SigningE2ETests: XCTestCase {
             displayName: "E2E Signed"
         )
         var logLines: [String] = []
-        try SignEngine.sign(request) { logLines.append(/bin/zsh) }
+        try SignEngine.sign(request) { logLines.append($0) }
 
         XCTAssertTrue(FileManager.default.fileExists(atPath: paths.output.path),
                       "Signed output missing. Engine log:\n\(logLines.joined(separator: "\n"))")
