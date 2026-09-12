@@ -13,14 +13,14 @@ struct StoreAppPageView: View {
     @EnvironmentObject private var library: AppLibrary
     @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var sourceManager: SourceManager
+    @ObservedObject private var downloadManager = DownloadManager.shared
 
     let source: StoredSource
     let app: AltApp
 
     @State private var storeInfo: AppStoreInfo?
-    @State private var downloading = false
     @State private var errorText: String?
-    @State private var importedApp: AppRecord?
+    @State private var sheetApp: AppRecord?
     @State private var showSignSheet = false
     @State private var expandedDescription = false
 
@@ -52,17 +52,17 @@ struct StoreAppPageView: View {
         .toolbarBackground(.hidden, for: .navigationBar)
         .onAppear {
             storeInfo = sourceManager.appStoreInfo(for: app.bundleIdentifier)
-            Task {
-                if let info = await sourceManager.lookup(bundleID: app.bundleIdentifier) {
-                    storeInfo = info
-                }
+            Task { @MainActor in
+                // Refreshed on every page view; misses retry after 10 minutes.
+                storeInfo = await sourceManager.lookup(bundleID: app.bundleIdentifier) ?? storeInfo
             }
         }
-        .sheet(isPresented: $showSignSheet) {
-            if let imported = importedApp ?? library.app(withBundleID: app.bundleIdentifier) {
-                SignConfigSheet(app: imported)
-            } else {
-                Text("Import failed — no local package to sign.").padding()
+        .sheet(item: $sheetApp) { record in
+            SignConfigSheet(app: record)
+        }
+        .onChange(of: downloadManager.downloads[app.bundleIdentifier]) { _, state in
+            if case .needsCertificate(let appID) = state {
+                sheetApp = library.app(with: appID)
             }
         }
         .alert("Couldn't download app", isPresented: Binding(get: { errorText != nil },
@@ -180,33 +180,7 @@ struct StoreAppPageView: View {
 
     private var actionArea: some View {
         VStack(spacing: 8) {
-            if downloading {
-                VStack(spacing: 8) {
-                    ProgressView()
-                        .tint(.batAmber)
-                    Text("Downloading \(app.latestVersion?.version ?? "")…")
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(0.55))
-                }
-                .padding(.horizontal, 32)
-            } else {
-                Button {
-                    downloadAndPrepare()
-                } label: {
-                    HStack(spacing: 8) {
-                        Image(systemName: "signature")
-                        Text(signButtonTitle)
-                    }
-                    .font(.subheadline.weight(.bold))
-                    .foregroundStyle(Color(hex: 0x1A1204))
-                    .padding(.horizontal, 34)
-                    .padding(.vertical, 11)
-                    .background(Capsule().fill(LinearGradient(colors: [Color.batAmber, Color.batAmberDeep],
-                                                              startPoint: .top, endPoint: .bottom)))
-                }
-                .buttonStyle(.plain)
-                .disabled(app.latestVersion?.downloadURL == nil)
-            }
+            getButton
             HStack(spacing: 10) {
                 if let version = app.latestVersion?.version {
                     Text("v\(version)")
@@ -224,14 +198,100 @@ struct StoreAppPageView: View {
         .padding(.vertical, 10)
     }
 
+    @ViewBuilder
+    private var getButton: some View {
+        let state = downloadManager.state(for: app.bundleIdentifier)
+        switch state {
+        case .downloading(let fraction):
+            ZStack {
+                Circle()
+                    .stroke(Color.white.opacity(0.15), lineWidth: 4)
+                Circle()
+                    .trim(from: 0, to: max(0.02, fraction))
+                    .stroke(Color.batAmber, style: StrokeStyle(lineWidth: 4, lineCap: .round))
+                    .rotationEffect(.degrees(-90))
+                Text("\(Int(fraction * 100))%")
+                    .font(.system(.caption, design: .rounded, weight: .bold))
+                    .foregroundStyle(.batAmber)
+            }
+            .frame(width: 58, height: 58)
+        case .preparing, .queuedForSigning:
+            HStack(spacing: 8) {
+                ProgressView().tint(Color(hex: 0x1A1204))
+                Text(state == .preparing ? "Preparing" : "Signing")
+            }
+            .font(.subheadline.weight(.bold))
+            .foregroundStyle(Color(hex: 0x1A1204))
+            .padding(.horizontal, 30)
+            .padding(.vertical, 11)
+            .background(Capsule().fill(Color.batAmber.opacity(0.75)))
+        case .needsCertificate:
+            Button {
+                if let record = library.app(withBundleID: app.bundleIdentifier) {
+                    sheetApp = record
+                }
+            } label: {
+                Text("Choose certificate")
+                    .font(.subheadline.weight(.bold))
+                    .foregroundStyle(Color(hex: 0x1A1204))
+                    .padding(.horizontal, 26)
+                    .padding(.vertical, 11)
+                    .background(Capsule().fill(LinearGradient(colors: [Color.batAmber, Color.batAmberDeep],
+                                                              startPoint: .top, endPoint: .bottom)))
+            }
+            .buttonStyle(.plain)
+        case .failed(let message):
+            VStack(spacing: 8) {
+                Button {
+                    startDownload()
+                } label: {
+                    Text("Retry")
+                        .font(.subheadline.weight(.bold))
+                        .foregroundStyle(.white)
+                        .padding(.horizontal, 30)
+                        .padding(.vertical, 11)
+                        .background(Capsule().fill(.white.opacity(0.12)))
+                }
+                .buttonStyle(.plain)
+                Text(message)
+                    .font(.caption2)
+                    .foregroundStyle(.danger)
+                    .multilineTextAlignment(.center)
+                    .padding(.horizontal, 24)
+            }
+        case nil:
+            Button {
+                startDownload()
+            } label: {
+                HStack(spacing: 7) {
+                    Text(signButtonTitle)
+                }
+                .font(.subheadline.weight(.bold))
+                .foregroundStyle(Color(hex: 0x1A1204))
+                .padding(.horizontal, 30)
+                .padding(.vertical, 11)
+                .background(Capsule().fill(LinearGradient(colors: [Color.batAmber, Color.batAmberDeep],
+                                                          startPoint: .top, endPoint: .bottom)))
+            }
+            .buttonStyle(.plain)
+            .disabled(app.latestVersion?.downloadURL == nil)
+        }
+    }
+
+    private func startDownload() {
+        errorText = nil
+        Haptics.tap()
+        downloadManager.start(app: app)
+    }
+
     private var signButtonTitle: String {
         if library.app(withBundleID: app.bundleIdentifier) != nil {
-            return "Sign installed copy"
+            return "Sign again"
         }
         if let version = app.latestVersion?.version {
-            return "Get & Sign v\(version)"
+            return "Get \(version)"
         }
-        return "Get & Sign"
+        return "Get"
     }
 
     private var infoBar: some View {
@@ -332,7 +392,16 @@ struct StoreAppPageView: View {
 
     @ViewBuilder
     private var ratingsSection: some View {
-        if let info = storeInfo, let rating = info.averageUserRating {
+        if let info = storeInfo, !info.isOnAppStore {
+            VStack(alignment: .leading, spacing: 10) {
+                SectionHeader(title: "Ratings & Reviews")
+                Text("Not on the App Store — no public ratings for this app.")
+                    .font(.caption)
+                    .foregroundStyle(.white.opacity(0.4))
+            }
+            .padding(.horizontal, 18)
+            .padding(.top, 14)
+        } else if let info = storeInfo, let rating = info.averageUserRating {
             VStack(alignment: .leading, spacing: 10) {
                 SectionHeader(title: "Ratings & Reviews")
                 HStack(spacing: 16) {
@@ -435,27 +504,6 @@ struct StoreAppPageView: View {
     }
 
     // MARK: Actions
-
-    private func downloadAndPrepare() {
-        downloading = true
-        errorText = nil
-        Task { @MainActor in
-            defer { downloading = false }
-            do {
-                let stagedURL = try await sourceManager.downloadStaged(app: app)
-                let record = try await library.importApp(from: stagedURL)
-                importedApp = record
-                try? FileManager.default.removeItem(at: stagedURL)
-                Haptics.success()
-                if UserDefaults.standard.bool(forKey: "autoSign") {
-                    showSignSheet = true
-                }
-            } catch {
-                errorText = error.localizedDescription
-                Haptics.error()
-            }
-        }
-    }
 
     // MARK: Helpers
 

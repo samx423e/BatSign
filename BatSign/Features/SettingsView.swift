@@ -22,7 +22,7 @@ struct SettingsView: View {
     var body: some View {
         ScrollView {
             VStack(spacing: 18) {
-                brandCard
+                madeByHeader
 
                 VStack(spacing: 6) {
                     SectionHeader(title: "Signing")
@@ -138,26 +138,19 @@ struct SettingsView: View {
         }
     }
 
-    private var brandCard: some View {
-        HStack(spacing: 14) {
-            ZStack {
-                RoundedRectangle(cornerRadius: 16, style: .continuous)
-                    .fill(LinearGradient(colors: [Color.batAmber, Color.batAmberDeep],
-                                         startPoint: .topLeading, endPoint: .bottomTrailing))
-                    .frame(width: 52, height: 52)
-                BatGlyph(size: 30, color: Color(hex: 0x1A1204))
-            }
-            VStack(alignment: .leading, spacing: 3) {
-                Text("BatSign")
-                    .font(.headline)
-                    .foregroundStyle(.white)
-                Text("On-device IPA signer · Liquid Glass")
-                    .font(.caption)
-                    .foregroundStyle(.white.opacity(0.5))
-            }
-            Spacer()
+    private var madeByHeader: some View {
+        VStack(spacing: 4) {
+            Text("Made By @ihateios")
+                .font(.system(.title3, design: .rounded, weight: .bold))
+                .foregroundStyle(
+                    LinearGradient(colors: [Color.batAmber, Color.white, Color.batAmber],
+                                   startPoint: .leading, endPoint: .trailing)
+                )
+                .shadow(color: Color.batAmber.opacity(0.65), radius: 12)
+                .shadow(color: Color.batAmberDeep.opacity(0.35), radius: 26)
         }
-        .padding(16)
+        .frame(maxWidth: .infinity)
+        .padding(.vertical, 14)
         .glassSurface(cornerRadius: 22)
     }
 

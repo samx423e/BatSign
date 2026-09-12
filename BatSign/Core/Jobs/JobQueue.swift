@@ -57,6 +57,18 @@ struct SignJob: Identifiable, Codable, Hashable {
     static func == (lhs: SignJob, rhs: SignJob) -> Bool { lhs.id == rhs.id }
 }
 
+extension SignOptions {
+    /// Sensible defaults for the one-tap auto-sign flow: strip extensions and
+    /// watch apps only when the package actually ships them.
+    static func automatic(for app: AppRecord) -> SignOptions {
+        SignOptions(bundleID: nil, displayName: nil, version: nil, minVersion: nil,
+                    entitlementsXML: nil, infoPlistOverridesXML: nil, iconFileName: nil,
+                    removeExtensions: app.hasExtensions, removeWatch: app.hasWatchApp,
+                    removeProvision: false, removeSupportedDevices: false,
+                    weakInject: false, dylibNames: [])
+    }
+}
+
 struct SignOptions: Codable, Hashable {
     var bundleID: String?
     var displayName: String?

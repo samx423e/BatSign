@@ -163,6 +163,23 @@ enum IPAParser {
                 }
             }
         }
+        // Fallback: apps that ship icons as loose PNGs with unexpected names
+        // (or only largest-square files). Decode the biggest few and take the
+        // first square image large enough to be an app icon.
+        if best == nil {
+            let biggest = pngEntries.sorted { $0.uncompressedSize > $1.uncompressedSize }.prefix(8)
+            for entry in biggest {
+                guard let data = try? reader.readData(entry),
+                      let image = UIImage(data: data) else { continue }
+                let width = image.size.width * image.scale
+                let height = image.size.height * image.scale
+                if width == height, width >= 100 {
+                    best = entry
+                    break
+                }
+            }
+        }
+
         guard let iconEntry = best, let data = try? reader.readData(iconEntry) else { return nil }
         return data
     }

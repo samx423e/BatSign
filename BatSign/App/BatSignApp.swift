@@ -55,7 +55,7 @@ struct BatSignApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var appDelegate
 
     @StateObject private var appState = AppState()
-    @StateObject private var library = AppLibrary()
+    @ObservedObject private var library = AppLibrary.shared
     // Shared singletons: the signing engine, background keeper and UI must
     // all observe the same stores — duplicate instances caused stale state.
     @ObservedObject private var certManager = CertificateManager.shared

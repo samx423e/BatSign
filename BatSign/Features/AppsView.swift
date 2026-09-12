@@ -134,6 +134,12 @@ struct AppsView: View {
                         let record = try await library.importApp(from: url)
                         Haptics.success()
                         if UserDefaults.standard.bool(forKey: "autoSign") {
+                            openAutoSignFlow(for: record,
+                                             certManager: certManager,
+                                             jobQueue: jobQueue,
+                                             presentSheet: { sheetApp = $0 },
+                                             switchToJobs: { appState.selectedTab = .activity })
+                        } else {
                             sheetApp = record
                         }
                     } catch {
@@ -267,6 +273,26 @@ struct AppsView: View {
                 .padding(.bottom, 6)
         }
     }
+}
+
+/// The auto-sign fast path: queue immediately with the last-used (or first)
+/// certificate; only fall back to the sheet when no certificate exists yet.
+@MainActor
+func openAutoSignFlow(for record: AppRecord,
+                      certManager: CertificateManager,
+                      jobQueue: JobQueue,
+                      presentSheet: @escaping (AppRecord) -> Void,
+                      switchToJobs: @escaping () -> Void) {
+    let lastID = UUID(uuidString: UserDefaults.standard.string(forKey: "lastCertID") ?? "")
+    let cert = lastID.flatMap { certManager.certificate(with: $0) }
+        ?? certManager.certificates.first
+    guard let cert else {
+        presentSheet(record)
+        return
+    }
+    jobQueue.enqueue(app: record, cert: cert, adhoc: false,
+                     options: .automatic(for: record), dylibs: [], iconURL: nil)
+    switchToJobs()
 }
 
 struct AppGridCard: View {
@@ -502,8 +528,10 @@ struct BulkExportSheet: View {
 // MARK: - App detail
 
 struct AppDetailView: View {
+    @EnvironmentObject private var appState: AppState
     @EnvironmentObject private var library: AppLibrary
     @EnvironmentObject private var jobQueue: JobQueue
+    @EnvironmentObject private var certManager: CertificateManager
     @Environment(\.dismiss) private var dismiss
 
     @State var app: AppRecord
@@ -553,6 +581,42 @@ struct AppDetailView: View {
 
                 VStack(spacing: 10) {
                     SectionHeader(title: "Actions")
+                    HStack(spacing: 10) {
+                        Button {
+                            if UserDefaults.standard.bool(forKey: "autoSign"),
+                               let cert = certManager.certificates.first(where: { cert in
+                                   let lastID = UUID(uuidString: UserDefaults.standard.string(forKey: "lastCertID") ?? "")
+                                   return lastID == nil || cert.id == lastID
+                               }) ?? certManager.certificates.first {
+                                jobQueue.enqueue(app: app, cert: cert, adhoc: false,
+                                                 options: .automatic(for: app), dylibs: [], iconURL: nil)
+                                appState.selectedTab = .activity
+                            } else {
+                                showSignSheet = true
+                            }
+                        } label: {
+                            Text("Sign")
+                                .font(.subheadline.weight(.bold))
+                                .foregroundStyle(Color(hex: 0x1A1204))
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 14)
+                                .background(LinearGradient(colors: [Color.batAmber, Color.batAmberDeep],
+                                                           startPoint: .top, endPoint: .bottomTrailing),
+                                            in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        }
+                        .buttonStyle(.plain)
+
+                        Button {
+                            showSignSheet = true
+                        } label: {
+                            Image(systemName: "slider.horizontal.3")
+                                .font(.subheadline.weight(.semibold))
+                                .foregroundStyle(.white)
+                                .frame(width: 52, height: 50)
+                                .background(.white.opacity(0.08), in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+                        }
+                    }
+
                     NavigationLink(value: BrowseNavID(id: app.id)) {
                         Label("Browse files (source viewer)", systemImage: "folder.badge.gearshape")
                             .font(.subheadline.weight(.semibold))
@@ -561,13 +625,6 @@ struct AppDetailView: View {
                             .padding(.vertical, 13)
                     }
                     .glassSurface(cornerRadius: 18)
-
-                    Button {
-                        showSignSheet = true
-                    } label: {
-                        Label("Sign this app", systemImage: "signature")
-                    }
-                    .buttonStyle(PrimaryGlassButtonStyle())
 
                     ShareLink(item: app.fileURL) {
                         Label("Share original .ipa", systemImage: "square.and.arrow.up")

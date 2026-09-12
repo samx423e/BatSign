@@ -85,6 +85,10 @@ struct AppStoreInfo: Codable, Hashable {
     var artworkURL: URL?
     var screenshotURLs: [URL]
     var fetchedAt: Date
+
+    var isOnAppStore: Bool {
+        averageUserRating != nil || userRatingCount != nil || !screenshotURLs.isEmpty || trackName != nil
+    }
 }
 
 @MainActor
@@ -98,6 +102,7 @@ final class SourceManager: ObservableObject {
 
     private let lookupURLBase = "https://itunes.apple.com/lookup?bundleId=%@&country=us"
     private let lookupTTL: TimeInterval = 24 * 3600
+    private let lookupMissTTL: TimeInterval = 10 * 60
 
     private init() {
         load()
@@ -144,7 +149,9 @@ final class SourceManager: ObservableObject {
         sources.append(stored)
         appsBySource[stored.id] = source.apps
         persist()
-        await enrich(with: source.apps)
+        // Enrichment (App Store lookups) runs detached so the caller — and
+        // the sheet the user is staring at — finishes immediately.
+        Task { await self.enrich(with: source.apps) }
         Haptics.success()
     }
 
@@ -188,7 +195,7 @@ final class SourceManager: ObservableObject {
             }
             appsBySource[stored.id] = source.apps
             persist()
-            await enrich(with: source.apps)
+            Task { await self.enrich(with: source.apps) }
         } catch {
             if let index = sources.firstIndex(where: { $0.id == stored.id }) {
                 sources[index].error = error.localizedDescription
@@ -245,7 +252,8 @@ final class SourceManager: ObservableObject {
 
     func appStoreInfo(for bundleID: String) -> AppStoreInfo? {
         guard let info = appStoreInfo[bundleID] else { return nil }
-        guard Date().timeIntervalSince(info.fetchedAt) < lookupTTL else { return nil }
+        let ttl = info.isOnAppStore ? lookupTTL : lookupMissTTL
+        guard Date().timeIntervalSince(info.fetchedAt) < ttl else { return nil }
         return info
     }
 
@@ -297,24 +305,6 @@ final class SourceManager: ObservableObject {
         } catch {
             return nil
         }
-    }
-
-    // MARK: Downloading
-
-    /// Downloads the newest version of a store app to a staged file.
-    /// The caller (with the environment AppLibrary) performs the import.
-    func downloadStaged(app: AltApp) async throws -> URL {
-        guard let version = app.latestVersion, let downloadURL = version.downloadURL else {
-            throw SourceError.noDownload
-        }
-        let (tempURL, response) = try await URLSession.shared.download(from: downloadURL)
-        if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
-            throw SourceError.badStatus(http.statusCode)
-        }
-        let staged = Paths.temp.appendingPathComponent("store-\(UUID().uuidString).ipa")
-        try? FileManager.default.removeItem(at: staged)
-        try FileManager.default.moveItem(at: tempURL, to: staged)
-        return staged
     }
 }
 

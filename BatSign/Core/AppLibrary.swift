@@ -10,6 +10,10 @@ import UIKit
 
 @MainActor
 final class AppLibrary: ObservableObject {
+    /// Single shared instance — views and the download completion pipeline
+    /// must observe the same library.
+    static let shared = AppLibrary()
+
     @Published private(set) var apps: [AppRecord] = []
 
     init() {

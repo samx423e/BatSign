@@ -1,106 +1,77 @@
-# BatSign 🦇
+# BatSign
 
-**A native, on-device IPA signer for iOS — Liquid Glass UI, powered by the zsign engine.**
+BatSign is an on-device IPA signer for iOS. It imports your own signing
+certificate and provisioning profile, re-signs app packages directly on the
+iPhone, and hands you back an installable file. No servers, no accounts, no
+uploads: certificates and apps never leave the device.
 
-BatSign signs `.ipa` files directly on your iPhone. No servers, no uploads, no accounts:
-your certificates and your apps never leave your device.
+The current build is compiled by GitHub Actions on every push to main and
+published as a release when the full pipeline is green: compile, unit tests
+on the iOS simulator, packaging, and an IPA structure check.
 
-> **Status: v1.0.0** — builds are compiled automatically by GitHub Actions and
-> released only after the full pipeline is green (compile + simulator unit tests
-> + packaging verification).
-> Grab the unsigned IPA from [Releases](../../releases) or the *Actions → artifacts* tab.
+## What it does
 
----
+Signing runs through the vendored zsign engine (MIT) with OpenSSL built for
+arm64 iOS. You can override the display name, bundle identifier, version and
+minimum OS, strip app extensions, watch apps, embedded profiles and device
+limits, edit entitlements and Info.plist keys, replace the app icon, and
+inject tweaks from .deb packages or raw dylibs.
 
-## Features
+Certificates are imported as a p12 plus provisioning profile and parsed with
+public APIs. The app tracks expiry and warns you in advance. Signing jobs run
+on a serial queue with a live engine log, survive app relaunches, and can be
+re-run after interruption.
 
-| | |
-|---|---|
-| 🦇 **On-device signing** | Real code signatures via a vendored [zsign](https://github.com/zhlynn/zsign) engine + OpenSSL 3.5, compiled for arm64 iOS |
-| 🪪 **Certificate manager** | Import `.p12` + `.mobileprovision` pairs; live validity, team, kind (Development / App Store / Enterprise), device list, entitlements |
-| 🧪 **Signing options** | Override display name, bundle ID, version, minimum iOS; strip app extensions / watch apps / embedded profiles / device limits; custom entitlements plist |
-| 📦 **Tweak injection** | Add `.dylib` files to load at launch (weak or normal injection handled by the engine) |
-| 📚 **App library** | Every import is parsed (icon, version, architectures, size, extensions) and re-signable in one tap |
-| 🛍 **Sources + Discover** | Add your own AltStore-format JSON sources and browse apps with App Store-style pages — hero banner, icon, ratings, screenshots and version history (ratings/artwork pulled live from the public App Store lookup API when the app is on it) |
-| 🗂 **Source viewer** | Browse any IPA's real archive contents, preview plists/profiles/images/text, export any file |
-| ➕ **Bulk sign / bulk delete** | Multi-select apps, queue them with one certificate, optional unique bundle-ID suffix |
-| 📦 **.deb tweaks** | Inject tweaks from .deb packages (gzip + zstd via bundled libzstd) or raw .dylibs |
-| 🗞 **Live jobs** | Persistent signing queue with per-job engine log console, stages, durations, re-run on failure |
-| 🔔 **Instant notifications** | Job results and certificate-expiry warnings delivered as local notifications (shown even in-app) and synced to an in-app notification center — deduplicated, never lost across relaunches |
-| ♻️ **Background upkeep** | `BGTaskScheduler` refresh/processing tasks keep certificate checks running while BatSign is away; signing holds a system activity token so your device doesn't sleep mid-job |
-| 🫧 **Liquid Glass** | Built against the iOS 26 SDK: native `glassEffect` surfaces, animated mesh-gradient aurora, spring animations; graceful material fallback on iOS 17–18 |
+## Sources
 
-## Install BatSign itself
+The Discover tab accepts app sources in the AltStore JSON format. Add a URL
+or import a local .json file, browse the catalog, and download and sign apps
+in place. Downloads run on a background URL session, so they continue if you
+leave the app, with progress shown on the Get button. When the package is
+present, BatSign looks up the App Store catalog for ratings, artwork and
+screenshots and shows them on the app page.
 
-BatSign ships **unsigned** — sign it with the same certificate you use for anything else:
+## Installing BatSign itself
 
-1. Download `BatSign.ipa` from CI artifacts/releases.
-2. Sign + install with **SideStore / Feather / AltStore / eSign / Xcode / Sideloadly** — pick your favorite.
-3. Open BatSign, import your `.p12` + profile, and sign away.
+Releases ship unsigned, because signing has to happen with a certificate you
+control. Download BatSign.ipa from Releases and install it the same way you
+install anything else: SideStore, Feather, AltStore, eSign, Sideloadly or
+Xcode. Then open BatSign, import your p12 and profile, and sign.
 
-## Using BatSign
+BatSign signs packages; it does not install them to SpringBoard. Installing
+the signed result needs an installer with device pairing, which is how every
+signer in this category works.
 
-1. **Certs tab → +** — import a `.p12`, its `.mobileprovision`, and the p12 password.
-   BatSign parses validity, team, devices, and entitlements with public APIs only.
-2. **Sign tab** — import an `.ipa` (Files app, AirDrop…), pick a certificate, adjust options, hit **Sign & Pack**.
-3. **Activity tab** — watch the engine log live; when a job lands, share the signed IPA from the job card.
-4. The signed IPA installs through your installer of choice (SideStore, Feather, eSign…).
+## Honest limits
 
-### Honesty section — what BatSign can and cannot do
+iOS suspends background apps aggressively. BatSign uses the sanctioned
+mechanisms only: background URL sessions for downloads, BGTaskScheduler for
+certificate checks, and an activity token so the device does not sleep
+mid-sign. A signing job interrupted by the system is marked Interrupted and
+re-runs in one tap. Injecting a tweak into a binary with no free load-command
+space is impossible by design; BatSign signs such apps anyway and tells you
+the tweak was skipped. Ad-hoc output is for testing and will not install on a
+stock device.
 
-- ✅ Signing, metadata overrides, extension stripping, dylib injection, profile swapping — all real, all on-device.
-- ✅ Notifications are instant and persisted; background refresh is the sanctioned iOS mechanism.
-- ⚠️ iOS suspends background apps aggressively. The keep-alive layer uses `BGTaskScheduler` +
-  activity tokens (no audio/location hacks). A sign job continues if the system grants time
-  (most likely when charging); otherwise it's marked *Interrupted* and re-runs in one tap.
-- ⚠️ BatSign signs; it does not install to SpringBoard — on-device installation of the *result*
-  requires an installer with device pairing (SideStore/Feather/AltStore) or a jailbroken install path.
-- ⚠️ Ad-hoc output (no certificate) is for testing — it will not install on a stock device.
+## Building
 
-## Building from source
+macOS with Xcode 26 and Homebrew:
 
-Requirements: macOS with Xcode 26, [Homebrew](https://brew.sh), network access.
+    brew install xcodegen
+    ./scripts/build-openssl.sh
+    ./scripts/build-zstd.sh
+    swift scripts/make-icon.swift
+    xcodegen generate
+    xcodebuild -project BatSign.xcodeproj -scheme BatSign -configuration Release \
+      -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build \
+      CODE_SIGNING_ALLOWED=NO build
+    ./scripts/make-ipa.sh
 
-```bash
-brew install xcodegen
-./scripts/build-openssl.sh      # libcrypto for iOS arm64 (~5 min, cached afterwards)
-swift scripts/make-icon.swift   # regenerate the icon asset
-xcodegen generate
-open BatSign.xcodeproj          # or:
-xcodebuild -project BatSign.xcodeproj -scheme BatSign -configuration Release \
-  -sdk iphoneos -destination 'generic/platform=iOS' -derivedDataPath build \
-  CODE_SIGNING_ALLOWED=NO build
-./scripts/make-ipa.sh           # → BatSign.ipa
-```
+The same steps run in .github/workflows/build.yml on macos-26.
 
-GitHub Actions does exactly this on `macos-26` (Xcode 26) — see [`.github/workflows/build.yml`](.github/workflows/build.yml).
+## Credits
 
-## Architecture
+zsign by zhlynn (MIT), OpenSSL (Apache-2.0), zstd (BSD), minizip (zlib
+license). BatSign app code is MIT.
 
-```
-BatSign/
-├── BatSign/                 # SwiftUI app
-│   ├── App/                 # Entry point, root tab bar, app state
-│   ├── Core/
-│   │   ├── ZIP/             # Dependency-free ZIP reader (EOCD/ZIP64/deflate)
-│   │   ├── IPA/             # IPA metadata + icon + Mach-O probing
-│   │   ├── Certs/           # p12 (SecPKCS12Import), profiles, keychain, manager
-│   │   ├── Signing/         # Swift wrapper over the C bridge
-│   │   ├── Jobs/            # Persistent queue, engine logs, notifications
-│   │   ├── Notifications/   # Instant hub + UNUserNotificationCenter delivery
-│   │   └── KeepAlive/       # BGTaskScheduler upkeep
-│   └── Features/            # Sign, Apps, Certs, Activity, Settings screens
-├── Vendor/zsign/            # Vendored zsign (MIT) + BatSign C bridge
-├── scripts/                 # OpenSSL cross-build, packaging, icon renderer
-└── .github/workflows/       # CI that produces the IPA
-```
-
-## Credits & licenses
-
-- [zsign](https://github.com/zhlynn/zsign) — MIT — the signing engine (vendored, with a small log-hook patch, see `docs/VENDORING.md`).
-- [OpenSSL](https://www.openssl.org) — Apache-2.0 — built for iOS by `scripts/build-openssl.sh`.
-- minizip/zlib — zlib license — bundled with zsign.
-- BatSign app code — MIT (see [LICENSE](LICENSE)).
-
-Signing other people's apps with certificates you don't own may violate agreements and laws.
-Use BatSign with your own certificates and respect software licenses.
+Made by @ihateios.

@@ -14,6 +14,7 @@ struct DiscoverView: View {
     @State private var showAddSource = false
     @State private var showImportSourceFile = false
     @State private var errorText: String?
+    @State private var searchText = ""
 
     var body: some View {
         ScrollView {
@@ -34,6 +35,8 @@ struct DiscoverView: View {
         .navigationTitle("Discover")
         .navigationBarTitleDisplayMode(.large)
         .toolbarBackground(.hidden, for: .navigationBar)
+        .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic),
+                    prompt: "Search apps")
         .refreshable {
             await sourceManager.refreshAll()
         }
@@ -122,7 +125,7 @@ struct DiscoverView: View {
                                     .foregroundStyle(.white)
                                     .lineLimit(1)
                                 if let error = stored.error {
-                                    Text("⚠ \(error)")
+                                    Text(error)
                                         .font(.caption)
                                         .foregroundStyle(.danger)
                                         .lineLimit(1)
@@ -161,11 +164,23 @@ struct DiscoverView: View {
 
     @ViewBuilder
     private var appGrid: some View {
-        let all = sourceManager.allApps()
+        let query = searchText.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
+        let all = sourceManager.allApps().filter { item in
+            query.isEmpty
+                || item.app.name.lowercased().contains(query)
+                || item.app.bundleIdentifier.lowercased().contains(query)
+                || (item.app.subtitle?.lowercased().contains(query) ?? false)
+                || (item.app.developerName?.lowercased().contains(query) ?? false)
+        }
         if !all.isEmpty {
             VStack(alignment: .leading, spacing: 10) {
                 SectionHeader(title: "All apps")
                     .padding(.horizontal, 6)
+                if all.isEmpty {
+                    EmptyState(icon: "magnifyingglass",
+                               title: "No matches",
+                               message: "No app in your sources matches the search.")
+                }
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 108), spacing: 14)], spacing: 14) {
                     ForEach(all, id: \.app.bundleIdentifier) { item in
                         NavigationLink(value: StoreAppNav(appBundleID: item.app.bundleIdentifier)) {
