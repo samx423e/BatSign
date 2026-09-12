@@ -145,9 +145,9 @@ extension DownloadManager: URLSessionDownloadDelegate {
         // Throttle: publish at most every whole percent of progress.
         var shouldPublish = false
         fractionLock.lock()
-        let previous = fractionStorage[task.taskIdentifier] ?? -1
+        let previous = fractionStorage[downloadTask.taskIdentifier] ?? -1
         if fraction - previous >= 0.01 || fraction >= 1.0 {
-            fractionStorage[task.taskIdentifier] = fraction
+            fractionStorage[downloadTask.taskIdentifier] = fraction
             shouldPublish = true
         }
         fractionLock.unlock()
