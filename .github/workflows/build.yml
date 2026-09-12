@@ -69,12 +69,25 @@ jobs:
             CODE_SIGNING_ALLOWED=NO \
             2>&1 | tee test.log | tail -25
 
-      - name: Upload test log (always)
+      - name: Collect crash reports (always)
+        if: always()
+        run: |
+          mkdir -p crashreports
+          cp -R ~/Library/Logs/DiagnosticReports/. crashreports/ 2>/dev/null || true
+          XCR=$(find ~/Library/Developer/Xcode/DerivedData -name "*.xcresult" -path "*Logs/Test*" | head -1)
+          if [ -n "$XCR" ]; then
+            xcrun xcresulttool get test-results summary --path "$XCR" > crashreports/test-summary.json 2>/dev/null || true
+          fi
+          ls -la crashreports | head -20
+
+      - name: Upload test log + crashes (always)
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: test-log
-          path: test.log
+          path: |
+            test.log
+            crashreports/
           if-no-files-found: ignore
 
       - name: Compile app (unsigned, device)
